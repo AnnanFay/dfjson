@@ -2,6 +2,7 @@ PROJECT (dgc)
 
 # WTF
 include_directories (
+    .
     include/
     include/boost_1_48_0/
     include/json_spirit/
@@ -11,10 +12,12 @@ include_directories (
 # A list of source files
 SET(PROJECT_SRCS
     dgc.cpp
+    encode.cpp
 )
 # A list of headers
 SET(PROJECT_HDRS
     dgc.h
+    encode.h
 )
 SET_SOURCE_FILES_PROPERTIES( ${PROJECT_HDRS} PROPERTIES HEADER_FILE_ONLY TRUE)
 
