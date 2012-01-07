@@ -117,8 +117,8 @@
 (defn not-nil? [foo]
   (not (nil? foo)))
 
-(defn get-type-name [data & [parent]]
-  (let [{:keys [tag attrs content]} data
+(defn get-type-name [data]
+  (let [{:keys [tag attrs content parent]} data
         tname (:type-name attrs)
         nname (:name attrs)
         first-child (first content)
@@ -137,17 +137,17 @@
       (= tag :compound)         (str "df::" (if (not-nil? content) (str parent-tname "::")) (or tname (str "T_" nname)))
       (= tag :bitfield)         (str "df::" parent-tname "::" (str "T_" nname))
       (= tag :stl-string)       (str "std::string")
-      (= tag :stl-vector)       (str "std::vector<" (or tname (get-type-name first-child data)) ">")
+      (= tag :stl-vector)       (str "std::vector<" (or tname (get-type-name first-child)) ">")
       (= tag :static-array)     (str (or tname (get-type-name first-child)) "[]")
       (= tag :enum)             (if (nil? tname)
                                   (str "df::enum_field<" (str "T_" nname) ", " (:base-type attrs) ">")
                                   (str "df::enum_field<" tname ", " (:base-type attrs) ">"))
       (= tag :enum-item)        (str "")
       (= tag :pointer)          (cond
-                                  (not (nil? tname))    (str tname "*")
+                                  (not (nil? tname))    (str "df::" tname "*")
                                   (> (count content) 1) (cond
-                                                          (not-nil? nname) (str "T_" nname "*")
-                                                          (not-nil? parent) (str "T_" parent-name "*")
+                                                          (not-nil? nname) (str parent-tname "::T_" nname "*")
+                                                          (not-nil? parent) (str "FOO:T_" parent-name "*")
                                                           :else "")
                                   :else                 (str (get-type-name first-child) "*"))
       :else                     (str (if (nil? tag) "[WTF-tag is nil]" (name tag))))))
@@ -158,7 +158,10 @@
     (if (nil? content)
       '()
       (concat
-        (map #(get-type-name % data) content)
+        (map #(get-type-name (if (string? %)
+                                %
+                                (assoc % :parent data)))
+              content)
         (if (nil? content)
           '()
           (apply concat (map get-types content)))))))
