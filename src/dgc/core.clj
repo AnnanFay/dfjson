@@ -1,167 +1,94 @@
 (ns dgc.core
   "Description... "
+  (:require [clojure.zip :as z])
   (:use clojure.xml
         clojure.pprint
         clojure.java.io))
 
-; NOTE: This code is ugly as fuck. Don't take it as anything other than that!
+(use '[clojure.string :only (join split)])
 
-
-;(defn get-encode [type body]
-;  (let encode-func (cond (= type "vector") get-encode-vector)
-;                         (= type "array")  get-encode-array)
-;                         :else             get-encode-value))
-;  (str "Value encode(" type " rval) {"
-;    (encode-func body)
-;    "return Va)lue(val);"
-;    "}"))
-
-;A comment
-(defn cmt [text]
-  (str "//" text "\n"))
-
-;A type
-(defn type [& all]
-  (str (apply str all) "\n"))
-
-;Value encode(df::unit::T_unknown4);
-(defn encode-compound [past data]
-  (let [{:keys [tag attrs content]} data]
-    (str (cmt "Compound")
-         (type "df::" past "::T_" (:name attrs)))))
-
-;Value encode(df::enum_field<df::profession,int16_t>);
-(defn encode-enum [data]
-  (let [{:keys [tag attrs content]} data]
-    (str (cmt "Enum")
-         (type "df::enum_field<" (:type-name attrs) ", " (:base-type attrs) ">"))))
-
-;Value encode(std::vector<int16_t>);
-(defn encode-stl-vector [data]
-  (let [{:keys [tag attrs content]} data
-        vec-type (or (:type-name attrs) (:type-name (first content)))]
-    (str (cmt "STL Vector")
-         (type "std::vector<" (if (nil? vec-type) "void*" vec-type) ">"))))
-
-;Value encode(std::vector<int16_t>);
-(defn encode-stl-string [data]
-  (let [{:keys [tag attrs content]} data]
-    (str (cmt "STL String")
-         (type "std::string"))))
-
-;NOT IMPLLEMENTED YET - don't know?
-(defn encode-static-array [data]
-  (let [{:keys [tag attrs content]} data]
-    (str (cmt "Static Array")
-         (type (:name attrs) "[]"))))
-
-(defn encode-value [data]
-  (let [{:keys [tag attrs content]} data]
-    (str (cmt "Value")
-         (type (name tag)))))
-
-
-(defn encode-struct-type-child [past data]
-  (let [{:keys [tag attrs content]} data]
-    (cond
-      (= tag :compound)     (encode-compound past data)
-      (= tag :stl-vector)   (encode-stl-vector data)
-      (= tag :stl-string)   (encode-stl-string data)
-      (= tag :enum)         (encode-enum data)
-      (= tag :static-array) (encode-static-array data)
-      (= tag :code-helper)  ""
-      :else                 (encode-value data))))
-
-;val.push_back(Pair("name", encode(rval->name)));
-(defn encode-as-part-of [data]
-  (let [{:keys [tag attrs content]} data
-        name (:name attrs)]
-    (str \tab "val.push_back(Pair(\"" name "\", encode(rval->" name ")));\n")))
-
-
-
-; Value encode(df::unit* unit);
-(defn encode-struct-type [data]
-  (let [{:keys [tag attrs content]} data
-    tname (:type-name attrs)]
-
-    (str (cmt "Struct")
-        ; own type
-        "Value encode(" tname " rval) {\n"
-        \tab "Object val;\n"
-        ; get children for structure
-        (apply str (map encode-as-part-of content))
-        \tab "return Value(val);\n"
-        "}\n"
-
-        ; get children types
-        (apply str (map (partial encode-struct-type-child tname) content)))))
-
-
-(defn encode-bitfield-type [data]
-  (let [{:keys [tag attrs content]} data]
-    (str (cmt "Bitfield")
-         (type (:type-name attrs)))))
-  
-(defn encode-dd-child [data]
-  (let [data (assoc data :attrs (assoc (:attrs data) :type-name (str "df::" (-> data :attrs :type-name))))
-        {:keys [tag attrs content]} data]
-    (if (= tag :struct-type)
-      (encode-struct-type data)
-      (encode-bitfield-type data))))
-
-(defn encode-dd [data]
-  (let [{:keys [tag attrs content]} data]
-    (apply str (map encode-dd-child content))))
+; NOTE: This code is fugly. Don't take it as anything other than that!
 
 (defn not-nil? [foo]
   (not (nil? foo)))
 
-(defn get-type-name [data & [parent]]
-  (let [{:keys [tag attrs content]} data
+;;;;;
+;;;;; Recursive walking functions
+;;;;;
+
+; Walks a tree applying f to every node with path
+; f returns the new node!
+(defn walk [f form]
+  (loop [loc form]
+    (if (z/end? loc)
+      (z/root loc)
+      (recur (z/next (z/replace loc (f (z/node loc) (z/path loc))))))))
+
+; Walks a tree calling f on every node
+; the results are returned as a sequence
+(defn walk-read [f form]
+  (loop [loc form res []]
+    (if (z/end? loc)
+      res
+      (recur (z/next loc) (conj res (f (z/node loc)))))))
+
+;;;;;
+;;;;; Main functions
+;;;;;
+
+(defn get-type-name [zdata zpath]
+  (let [{:keys [tag attrs content parent]} zdata
         tname (:type-name attrs)
+        tname (if (= tname "pointer") "void*" tname)
         nname (:name attrs)
         first-child (first content)
+        parent (first zpath)
         parent-tname (-> parent :attrs :type-name)
-        parent-name (-> parent :attrs :name)]
+        parent-name (-> parent :attrs :name)
+        spath (join "::" (reverse (remove nil? (map #(-> % :attrs :type-name) zpath))))
+        npath (join "::" (reverse (remove nil? (map #(-> % :attrs :name) zpath))))]
     (cond
-      (nil? data)               "void"
-      (string? data)            "[string]"
+      (nil? zdata)               "void"
+      (string? zdata)            ""
       (= tag :data-definition)  (str "")
       (= tag :code-helper)      (str "")
       (= tag :comment)          (str "")
       (= tag :padding)          (str "")
-      (= tag :bitfield-type)    (str "df::" tname)
-      (= tag :flag-bit)         (str "") ; unsigned int, though never needed
-      (= tag :struct-type)      (str "df::" tname)
-      (= tag :compound)         (str "df::" (if (not-nil? content) (str parent-tname "::")) (or tname (str "T_" nname)))
-      (= tag :bitfield)         (str "df::" parent-tname "::" (str "T_" nname))
+      (= tag :bitfield-type)    (str tname)
+      (= tag :flag-bit)         (str "") ; unsigned int, though never needed?
+      (= tag :struct-type)      (str spath tname)
+      (= tag :compound)         (if (nil? content)
+                                  (str tname)
+                                  (str spath "::" (or tname (str "T_" nname))))
+      (= tag :bitfield)         (str spath "::" (str "T_" nname))
       (= tag :stl-string)       (str "std::string")
-      (= tag :stl-vector)       (str "std::vector<" (or tname (get-type-name first-child data)) ">")
-      (= tag :static-array)     (str (or tname (get-type-name first-child)) "[]")
+      (= tag :stl-vector)       (str "std::vector<" (or tname (get-type-name first-child (conj zpath zdata))) ">")
+      (= tag :static-array)     (if (nil? tname)
+                                  (str tname (get-type-name first-child (conj zpath zdata)) "[]")
+                                  (str tname "[]"))
       (= tag :enum)             (if (nil? tname)
-                                  (str "df::enum_field<" (str "T_" nname) ", " (:base-type attrs) ">")
-                                  (str "df::enum_field<" tname ", " (:base-type attrs) ">"))
+                                  (str "enum_field<" (str "T_" nname) ", " (:base-type attrs) ">")
+                                  (str "enum_field<" tname ", " (:base-type attrs) ">"))
       (= tag :enum-item)        (str "")
       (= tag :pointer)          (cond
                                   (not (nil? tname))    (str tname "*")
                                   (> (count content) 1) (cond
-                                                          (not-nil? nname) (str "T_" nname "*")
-                                                          (not-nil? parent) (str "T_" parent-name "*")
+                                                          (not-nil? nname) (str spath "::T_" nname "*")
+                                                          (not-nil? parent) (str spath "::T_" parent-name "*")
                                                           :else "")
-                                  :else                 (str (get-type-name first-child) "*"))
-      :else                     (str (if (nil? tag) "[WTF-tag is nil]" (name tag))))))
+                                  :else                 (str (get-type-name first-child (conj zpath zdata)) "*"))
+      :else                     (str (name tag)))))
 
 
-(defn get-types [data]
-  (let [{:keys [tag attrs content]} data]
-    (if (nil? content)
-      '()
-      (concat
-        (map #(get-type-name % data) content)
-        (if (nil? content)
-          '()
-          (apply concat (map get-types content)))))))
+; Add type to a node
+(defn add-type [znode zpath]
+  (if (map? znode)
+    (assoc znode :type (get-type-name znode zpath))
+    znode))
+
+; Adds type key to all nodes
+(defn process [zdata]
+  (walk add-type zdata))
 
 (defn format-header [type]
   (str "Value encode(" type ");\n"))
@@ -169,11 +96,22 @@
 (defn format-headers [types]
   (apply str (map format-header types)))
 
+(defn get-headers [data]
+  (sort (distinct (walk-read :type (z/xml-zip data)))))
+
+
+;;;;;
+;;;;; Main function
+;;;;; 
+
 (defn -main []
-  (let [data (parse "df.units.xml")
-        log (writer "file:output.clj")
-        header "encode-unit.h"
-        source "encode-unit.cpp"]
-    (pprint data log)
-    (spit source (encode-dd data))
-    (spit header (format-headers (sort (distinct (get-types data)))))))
+  (let [data-file "df.units.xml"
+        header    "encode-unit.h"
+        source    "encode-unit.cpp"
+        zdata     (z/xml-zip (parse data-file))
+        log       (writer "file:df.units.clj")
+        processed (process zdata)]
+    (pprint (get-headers processed) log)
+    ;(spit source (format-source processed))
+    (spit header (format-headers (get-headers processed)))
+    ))
