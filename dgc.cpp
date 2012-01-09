@@ -57,7 +57,7 @@ DFhackCExport command_result dgc (Core * c, vector <string> & parameters)
     CoreSuspender suspend(c);
     
     ofstream os( "Dwarves.json" );
-    write_stream( encode(world), os, single_line_arrays | remove_trailing_zeros);
+    write_stream( encode(df::world), os, single_line_arrays | remove_trailing_zeros);
     os.close();
 
     return CR_OK;
