@@ -35,6 +35,14 @@
       res
       (recur (z/next loc) (conj res (f (z/node loc)))))))
 
+; returns first match
+(defn walk-find [pred form]
+  (loop [loc form]
+    (cond
+      (z/end? loc)        nil
+      (pred (z/node loc)) loc
+      :else (recur (z/next loc)))))
+
 (defn loc-children [loc]
   (loop [child (z/down loc) children []]
     (if (nil? child)
@@ -205,9 +213,20 @@
           ";\n"
           (str
             "{\n"
-            (if (nil? inherit)
-              (str \tab "Object val;\n")
-              (str \tab "Object val = encode_object(dynamic_cast<df::" inherit "*>(&rval));\n"))
+            (str \tab "Object val;\n")
+            (if (not-nil? inherit)
+              (let [inherit-loc (walk-find
+                                  #(and (= (-> % :attrs :type-name) inherit) (= (:tag %) :ld:global-type))
+                                  (-> zdata z/root z/xml-zip))]
+                (if (not-nil? inherit-loc)
+                  (do
+                    ;(prn inherit "found ----> " (map format-add (loc-children inherit-loc)))
+                    (str
+                      "// From inheritance\n"
+                      (apply str (map format-add (loc-children inherit-loc)))
+                      "\n"))
+                  ;(prn inherit " cannot be found! ")
+                  )))
             (apply str (map format-add (loc-children zdata)))
             \tab "return val;\n"
             "}\n"
