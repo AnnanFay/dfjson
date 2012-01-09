@@ -19,7 +19,6 @@
 #include <df-headers.h>
 
 #include <encode.h>
-#include <encode-df.h>
 
 using namespace std;
 using namespace json_spirit;
@@ -46,11 +45,11 @@ DFhackCExport command_result plugin_shutdown ( Core * c ) {
     return CR_OK;
 }
 
+
 DFhackCExport command_result dgc (Core * c, vector <string> & parameters)
 {
     // Suspend DF
     CoreSuspender suspend(c);
-
 
     Value val = encode(*world);
 
