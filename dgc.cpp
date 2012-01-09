@@ -1,37 +1,32 @@
 // This is the first C/C++ program I've written. Apollogies for any stupid code.
 
-#include <DFHack.h>
-#include <Core.h>
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
-
-#include <encode.h>
-
-#include <boost/lexical_cast.hpp>
-
-#include "json_spirit_reader_template.h"
-#include "json_spirit_writer_template.h"
-
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <string>
 
+#include <boost/lexical_cast.hpp>
+#include <json_spirit_reader_template.h>
+#include <json_spirit_writer_template.h>
+
+#include <DFHack.h>
+#include <Core.h>
+#include <Console.h>
+#include <Export.h>
+#include <PluginManager.h>
+#include <DataDefs.h>
+
+#include <df-headers.h>
+
+#include <encode.h>
+#include <encode-df.h>
+
 using namespace std;
 using namespace json_spirit;
 using namespace boost;
-
-#include <DataDefs.h>
-#include <df/world.h>
-#include <df/unit.h>
-
 using namespace DFHack;
-using namespace df::enums;
 
 using df::global::world;
-using df::unit;
-
 
 DFhackCExport command_result dgc (Core * c, vector <string> & parameters);
 
@@ -55,9 +50,12 @@ DFhackCExport command_result dgc (Core * c, vector <string> & parameters)
 {
     // Suspend DF
     CoreSuspender suspend(c);
-    
+
+
+    Value val = encode(*world);
+
     ofstream os( "Dwarves.json" );
-    write_stream( encode(world), os, single_line_arrays | remove_trailing_zeros);
+    write_stream( val, os, single_line_arrays | remove_trailing_zeros);
     os.close();
 
     return CR_OK;
