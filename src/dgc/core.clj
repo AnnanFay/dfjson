@@ -51,10 +51,9 @@
 (defn type-path [zdata]
   (let [zpath (z/path zdata)
         fpath (map
-                #(-> % :attrs :type-name)
+                #(some (:attrs %) [:type-name :ld:typedef-name])
                 zpath)
-        opath (reverse
-                (remove nil? fpath))]
+        opath (remove nil? fpath)]
     (if (empty? opath)
       "df::"
       (str "df::" (join "::" opath) "::"))))
@@ -112,7 +111,7 @@
             (= subtype "padding")       (str (nth alignment atable) "[" (/ size alignment) "]")
             :else                       (throw Exception "Foo"))
           (get-primitive-type subtype))
-      (= m "global")              type-name
+      (= m "global")              (str "df::" type-name)
       (= m "compound")  (cond
                           (= subtype "enum")      "enum_field<" typedef-name ", " (:base-type attrs)">"
                           (= subtype "bitfield")  typedef-name
@@ -131,16 +130,30 @@
         t     (-> znode :tag)
         m     (:ld:meta attrs)
         size  (or (:size attrs) (:count attrs))
-        stype (:ld:subtype attrs)]
+        stype (:ld:subtype attrs)
+        path-to (type-path zdata)]
     (cond
+      (nil? n)                "" ; if there's no name we never want to display it.
       (= t :code-helper)      ""
+      (= t :virtual-methods)  ""
       (= stype "enum")        (str \tab "val.push_back(Pair(\"" n "\"," \tab
-                                "encode_enum<df::" (:type-name attrs) ", " (:base-type attrs) ">(rval." n ")));\n")
+                                "encode_enum<" (if (= m "compound") path-to "df::")
+                                            (or (:type-name attrs) (:ld:typedef-name attrs))
+                                            (if (:base-type attrs)
+                                              (str ", " (:base-type attrs)))
+                                            ">(rval." n ")));\n")
+                                ;"encode_enum(rval." n ")));\n")
       (= stype "stl-vector")  (str \tab "val.push_back(Pair(\"" n "\"," \tab
-                                "encode_vector<" (container-item-type zdata) ">(rval." n ")));\n")
+                                ;"encode_vector<" (container-item-type zdata) ">(rval." n ")));\n")
+                                "encode_vector(rval." n ")));\n")
+      (= stype "flag-bit")    (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode(rval.bits." n ")));\n")
       (not-nil? size)         (str \tab "val.push_back(Pair(\"" n "\"," \tab
-                                "encode_array<" (container-item-type zdata) ">(rval." n ", " size ")));\n")
-      :else                   (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode(rval." n ")));\n"))))
+                                ;"encode_array<" (container-item-type zdata) ">(rval." n ", " size ")));\n")
+                                "encode_array(rval." n ")));\n")
+      :else                   (if (and (= m "pointer") (> (count (:content znode)) 0))
+                                ;set child name to your name then format the child
+                                (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))))
+                                (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode(rval." n ")));\n")))))
 
 ;;;;;
 ;;;;; Render meta
@@ -153,7 +166,9 @@
   "")
 
 (defn render-meta-pointer [zdata]
-  "//[meta primitive]\n")
+  (str
+    "//[meta pointer - rendering children]\n"
+    (apply str (map render (loc-children zdata)))))
 
 ; char array i.e. char[size]
 (defn render-meta-bytes [zdata]
@@ -168,9 +183,6 @@
 (defn render-meta-global [zdata]
   "//[meta global]\n")
 
-(defn render-meta-container [zdata]
-  "//[meta-container]\n")
-
 (defn render-meta-enum-type [zdata]
   "//[meta-enum-type]\n")
 
@@ -179,36 +191,49 @@
   ;"//[meta-static-array]\n")
   "")
 
-(defn render-meta-bitfield-type [zdata]
-  "//[meta bitfield-type]\n")
-
 (defn render-meta-struct-type [zdata]
   (let [{:keys [tag attrs content]} (z/node zdata)
         path-to (type-path zdata)
-        inherit (:inherits-from attrs)]
-    (str 
-      "//[meta (struct/class)-type]\n"
-      "Value _encode(" path-to (or (:type-name attrs) (:ld:typedef-name attrs)) " rval)"
-      (if headers-only
-        ";\n"
-        (str
-          "{\n"
-          \tab "Object val;\n"
-          (if (not-nil? inherit)
-            (str \tab "val = encode((" inherit ")rval);\n"))
-          (apply str (map format-add (loc-children zdata)))
-          \tab "return Value(val);\n"
-          "}\n"
-          (apply str (map render (loc-children zdata))))))))
+        inherit (:inherits-from attrs)
+        type    (or (:type-name attrs) (:ld:typedef-name attrs))]
+    (if (nil? type)
+      ""
+      (str 
+        "//[meta (struct/class)-type]\n"
+        "Object _encode(" path-to type " rval)"
+        (if headers-only
+          ";\n"
+          (str
+            "{\n"
+            (if (nil? inherit)
+              (str \tab "Object val;\n")
+              (str \tab "Object val = encode_object(dynamic_cast<df::" inherit "*>(&rval));\n"))
+            (apply str (map format-add (loc-children zdata)))
+            \tab "return val;\n"
+            "}\n"
+            (apply str (map render (loc-children zdata)))))))))
 
 (defn render-meta-compound [zdata]
-  (str "//[meta compound] "
-  (render-meta-struct-type zdata)))
+  (let [{:keys [tag attrs content]} (z/node zdata)
+        stype (:ld:subtype attrs)]
+    (str "//[meta compound - " stype "] \n"
+    (if (= stype "enum")
+      ""
+      (render-meta-struct-type zdata)))))
 
 ;same as struct
 (defn render-meta-class-type [zdata]
   (str "//[meta class-type] "
-  (render-meta-struct-type zdata)))
+    (render-meta-struct-type zdata)))
+
+(defn render-meta-bitfield-type [zdata]
+  (str "//[meta bitfield type] "
+    (render-meta-struct-type zdata)))
+
+(defn render-meta-container [zdata]
+  (str "//[meta-container]\n"
+    (apply str (map render (loc-children zdata)))))
+
 
 ;;;;;
 ;;;;; Render Tag
@@ -236,7 +261,7 @@
   (render-meta zdata))
 
 (defn render-ld:item [zdata]
-  "[item]\n")
+  (render-meta zdata))
 
 (defn render-ld:vmethod [zdata]
   "[vmethod]")
@@ -278,8 +303,12 @@
         header    "encode-df.h"
         source    "encode-df.cpp"
         zdata     (z/xml-zip (parse data-file))
-        log       (writer "file:log.clj")
         outlog    "log-out.cpp"]
-    (spit source (str (slurp "encode-df.inc.cpp") (render zdata)))
+    (spit source  (str
+                    (slurp "encode-df.head.cpp")
+                    (render zdata)))
     (binding [headers-only true]
-      (spit header (str (slurp "encode-df.inc.h") (render zdata))))))
+      (spit header  (str
+                    (slurp "encode-df.head.h")
+                    (render zdata)
+                    (slurp "encode-df.tail.h"))))))
