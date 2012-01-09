@@ -13,11 +13,14 @@ include_directories (
 SET(PROJECT_SRCS
     dgc.cpp
     encode.cpp
+    encode-df.cpp
 )
 # A list of headers
 SET(PROJECT_HDRS
     dgc.h
     encode.h
+    encode-df.h
+    df-headers.h
 )
 SET_SOURCE_FILES_PROPERTIES( ${PROJECT_HDRS} PROPERTIES HEADER_FILE_ONLY TRUE)
 
