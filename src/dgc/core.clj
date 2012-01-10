@@ -66,6 +66,7 @@
       "df::"
       (str "df::" (join "::" opath) "::"))))
 
+
 (def primitive-types ['int8_t 'uint8_t 'int16_t 'uint16_t 'int32_t 'uint32_t 'int64_t 'uint64_t 's-float 'bool 'flag-bit 'padding 'static-string])
 
 (def primitive-type-aliases {
@@ -131,7 +132,7 @@
 
 
 
-(defn format-add [zdata]
+(defn format-add [zdata & [deref]]
   (let [znode         (z/node zdata)
         attrs (:attrs znode)
         n     (or (:name attrs) (:ld:anon-name attrs))
@@ -149,19 +150,23 @@
                                             (or (:type-name attrs) (:ld:typedef-name attrs))
                                             (if (:base-type attrs)
                                               (str ", " (:base-type attrs)))
-                                            ">(rval." n ")));\n")
+                                            ">(" deref "rval." n ")));\n")
                                 ;"encode_enum(rval." n ")));\n")
-      (= stype "stl-vector")  (str \tab "val.push_back(Pair(\"" n "\"," \tab
-                                ;"encode_vector<" (container-item-type zdata) ">(rval." n ")));\n")
-                                "encode_vector(rval." n ")));\n")
-      (= stype "flag-bit")    (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode(rval.bits." n ")));\n")
+      (= stype "stl-vector")  (do
+                                (prn (str "vector(" n ") : " (container-item-type zdata)))
+                                (str \tab "val.push_back(Pair(\"" n "\"," \tab
+                                  ;"encode_vector<" (container-item-type zdata) ">(rval." n ")));\n")
+                                  "encode_vector(" deref "rval." n ")));\n"))
+      (= stype "flag-bit")    (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode(" deref "rval.bits." n ")));\n")
       (not-nil? size)         (str \tab "val.push_back(Pair(\"" n "\"," \tab
                                 ;"encode_array<" (container-item-type zdata) ">(rval." n ", " size ")));\n")
-                                "encode_array(rval." n ")));\n")
+                                "encode(" deref "rval." n ")));\n")
       :else                   (if (and (= m "pointer") (> (count (:content znode)) 0))
                                 ;set child name to your name then format the child
-                                (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))))
-                                (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode(rval." n ")));\n")))))
+                                (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) (str deref "*"))
+                                (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode("
+                                  deref (if (= m "global") (str "&rval." n) (str "rval." n))
+                                  ")));\n")))))
 
 ;;;;;
 ;;;;; Render meta
@@ -196,8 +201,9 @@
 
 ; manual template
 (defn render-meta-static-array [zdata]
-  ;"//[meta-static-array]\n")
-  "")
+  (str
+    "//[meta static-array - rendering children]\n"
+    (apply str (map render (loc-children zdata)))))
 
 (defn render-meta-struct-type [zdata]
   (let [{:keys [tag attrs content]} (z/node zdata)
@@ -208,7 +214,7 @@
       ""
       (str 
         "//[meta (struct/class)-type]\n"
-        "Object _encode(" path-to type " rval)"
+        "Object _encode(" path-to type (if (= (:ld:meta attrs) "class-type") "&") " rval)"
         (if headers-only
           ";\n"
           (str

@@ -19,7 +19,6 @@
 #include <df-headers.h>
 
 #include <encode.h>
-#include <encode-df.h>
 
 using namespace std;
 using namespace json_spirit;
