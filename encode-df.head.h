@@ -1,3 +1,5 @@
+#ifndef DF_ENCODE_DF
+#define DF_ENCODE_DF
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -17,7 +19,6 @@
 #include <df-headers.h>
 
 #include <encode.h>
-#include <encode-df.h>
 
 using namespace std;
 using namespace json_spirit;
