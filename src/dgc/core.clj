@@ -1,8 +1,8 @@
 (ns dgc.core
   "Description... "
-  (:require [clojure.zip :as z])
-  (:use [clojure.string :only (join split)]
-        clojure.xml
+  (:require [clojure.zip :as z]
+            [clojure.string :as s])
+  (:use clojure.xml
         clojure.pprint
         clojure.java.io))
 
@@ -64,7 +64,7 @@
         opath (remove nil? fpath)]
     (if (empty? opath)
       "df::"
-      (str "df::" (join "::" opath) "::"))))
+      (str "df::" (s/join "::" opath) "::"))))
 
 
 (def primitive-types ['int8_t 'uint8_t 'int16_t 'uint16_t 'int32_t 'uint32_t 'int64_t 'uint64_t 's-float 'bool 'flag-bit 'padding 'static-string])
@@ -153,7 +153,7 @@
                                             ">(" deref "rval." n ")));\n")
                                 ;"encode_enum(rval." n ")));\n")
       (= stype "stl-vector")  (do
-                                (prn (str "vector(" n ") : " (container-item-type zdata)))
+                                ;(prn (str "vector(" n ") : " (container-item-type zdata)))
                                 (str \tab "val.push_back(Pair(\"" n "\"," \tab
                                   ;"encode_vector<" (container-item-type zdata) ">(rval." n ")));\n")
                                   "encode_vector(" deref "rval." n ")));\n"))
@@ -164,9 +164,11 @@
       :else                   (if (and (= m "pointer") (> (count (:content znode)) 0))
                                 ;set child name to your name then format the child
                                 (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) (str deref "*"))
-                                (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode("
-                                  deref (if (= m "global") (str "&rval." n) (str "rval." n))
-                                  ")));\n")))))
+                                (str \tab "val.push_back(Pair(\"" n "\"," \tab
+                                  (if (and (= m "global") (not-nil? deref))
+                                    (str "encode_class(" (subs deref 1))
+                                    (str "encode(" deref))
+                                  "rval." n ")));\n")))))
 
 ;;;;;
 ;;;;; Render meta
@@ -179,9 +181,9 @@
   "")
 
 (defn render-meta-pointer [zdata]
-  (str
-    "//[meta pointer - rendering children]\n"
-    (apply str (map render (loc-children zdata)))))
+      (str
+        "//[meta pointer - rendering children]\n"
+        (apply str (map render (loc-children zdata)))))
 
 ; char array i.e. char[size]
 (defn render-meta-bytes [zdata]
@@ -199,12 +201,6 @@
 (defn render-meta-enum-type [zdata]
   "//[meta-enum-type]\n")
 
-; manual template
-(defn render-meta-static-array [zdata]
-  (str
-    "//[meta static-array - rendering children]\n"
-    (apply str (map render (loc-children zdata)))))
-
 (defn render-meta-struct-type [zdata]
   (let [{:keys [tag attrs content]} (z/node zdata)
         path-to (type-path zdata)
@@ -213,7 +209,7 @@
     (if (nil? type)
       ""
       (str 
-        "//[meta (struct/class)-type]\n"
+        "//[meta struct-type]\n"
         "Object _encode(" path-to type (if (= (:ld:meta attrs) "class-type") "&") " rval)"
         (if headers-only
           ";\n"
@@ -228,7 +224,7 @@
                   (do
                     ;(prn inherit "found ----> " (map format-add (loc-children inherit-loc)))
                     (str
-                      "// From inheritance\n"
+                      "// From inheritance (" inherit ")\n"
                       (apply str (map format-add (loc-children inherit-loc)))
                       "\n"))
                   ;(prn inherit " cannot be found! ")
@@ -237,6 +233,17 @@
             \tab "return val;\n"
             "}\n"
             (apply str (map render (loc-children zdata)))))))))
+
+; manual template
+(defn render-meta-static-array [zdata]
+  (let [{:keys [tag attrs content]} (z/node zdata)]
+    ; if it has a typedef we need to print out it as a struct of the content
+    (if (not-nil? (:ld:typedef-name attrs))
+      (render-meta-struct-type zdata)
+      (str
+        "//[meta static-array - rendering children]\n"
+        (apply str (map render (loc-children zdata)))))))
+
 
 (defn render-meta-compound [zdata]
   (let [{:keys [tag attrs content]} (z/node zdata)
