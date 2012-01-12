@@ -7,8 +7,8 @@
 #include <string>
 
 #include <boost/lexical_cast.hpp>
-#include <json_spirit_reader_template.h>
-#include <json_spirit_writer_template.h>
+#include <json_spirit/json_spirit_reader_template.h>
+#include <json_spirit/json_spirit_writer_template.h>
 
 #include <DFHack.h>
 #include <Core.h>
@@ -20,131 +20,142 @@
 #include <df-headers.h>
 
 #include <encode-df.h>
-//#include <extract.h>
 
 using namespace std;
 using namespace json_spirit;
 using namespace boost;
 using namespace DFHack;
 
-/////
-///// Templates
-/////
+/*
+    Encoding functions
+*/
 
-// Deref everything
-
-template<typename T> T & deref(T &v) { return v; }
-template<typename T> T & deref(T *v) { return deref(*v); }
-
-template<typename T> T * ref(T &v) { return &v; }
-template<typename T> T * ref(T *v) { return v; }
-
-/////
-///// Encode stuff
-/////
-
-// general case
+/*
+    General Case
+*/
 template <class T>
-Value encode(T x) {
-    return Value(_encode(x));
+json_spirit::Value encode(T rval) {
+    // Don't assume that it can be encoded by something else, just pass back nothing
+    return json_spirit::Value();
 }
-// A pointer to something
+
+/*
+    Pointers
+*/
 template <class T>
-Value encode(T* x) {
-    return encode(*x);
+json_spirit::Value encode(T* rval) {
+    // deref and encode
+    return encode(*rval);
 }
-// An array of some type
+
+// A pointer to an unknown
+json_spirit::Value encode(void* rval) {
+    return json_spirit::Value();
+}
+
+/*
+    Primitives - Integers
+*/
+
+// must be cast tobool, int, boost::int64_t, boost::uint64_t(long long) or double
+
+json_spirit::Value encode(bool rval){
+    return json_spirit::Value(rval);
+}
+json_spirit::Value encode(int rval){
+    return json_spirit::Value(rval);
+}
+json_spirit::Value encode(long rval){
+    return json_spirit::Value((long long)rval);
+}
+json_spirit::Value encode(long long rval){
+    return json_spirit::Value(rval);
+}
+json_spirit::Value encode(short rval){
+    return json_spirit::Value((int)rval);
+}
+json_spirit::Value encode(signed char rval){
+    return json_spirit::Value(rval);
+}
+json_spirit::Value encode(unsigned char rval){
+    return json_spirit::Value(rval);
+}
+json_spirit::Value encode(unsigned long rval){
+    return json_spirit::Value((unsigned long long)rval);
+}
+json_spirit::Value encode(unsigned long long rval){
+    return json_spirit::Value(rval);
+}
+json_spirit::Value encode(unsigned short rval){
+    return json_spirit::Value(rval);
+}
+
+/*
+    Primitives - Arrays
+*/
+
 template <class T, std::size_t N>
-Value encode(T (&array)[N]){
-    return Value("Not Implemented");
-}
-// A pointer to void
-template <>
-Value encode(void* x) {
-    return Value();
-}
-
-
-
-// encode object
-
-template <class T>
-Object encode_object(T x) {
-    return _encode(x);
-}
-
-template <class T>
-Object encode_object(T* x) {
-    return encode_object(*x);
-}
-
-//encode class with protected destructor
-
-template <class T>
-Object encode_class(T x) {
-    return _encode(x);
-}
-
-
-
-// Vectors
-
-template<typename T>
-Value encode_vector(T val) {
-    return encode(val);
-}
-
-template<typename T>
-Value encode_vector(std::vector<T> vec) {
+json_spirit::Value encode(T (&rval)[N]){
     Array out;
-    for (int i=0; i < vec.size(); i++){
-        out.push_back( encode_vector(vec[i]) );
+    for (int i=0; i < N; i++){
+        out.push_back( encode(rval[i]) );
     }
-    return Value(out);
+    return json_spirit::Value(out);
+}
+
+/*
+    STD Types
+*/
+
+json_spirit::Value encode(std::string rval) {
+    return json_spirit::Value(rval);
+}
+
+template<class T>
+json_spirit::Value encode(std::vector<T> rval) {
+    Array out;
+    for (int i=0; i < rval.size(); i++){
+        out.push_back( encode(rval[i]) );
+    }
+    return json_spirit::Value(out);
 }
 
 
-template<typename T>
-Value _encode(std::vector<T> vec) {
-    return encode_vector(vec);
+/*
+    DF Types
+*/
+template<class EnumType, class IntType>
+json_spirit::Value encode(df::enum_field<EnumType,IntType> rval) {
+    return json_spirit::Value();
 }
 
-// Arrays
-template <class T, std::size_t N>
-Value encode_array(T (&array)[N]){
-    return Value("Not Implemented");
+/*
+    template<class EnumType, class IntType = int32_t>
+    struct enum_field {
+        IntType value;
+
+        enum_field() {}
+        enum_field(EnumType ev) : value(IntType(ev)) {}
+        template<class T>
+        enum_field(enum_field<EnumType,T> ev) : value(IntType(ev.value)) {}
+
+        operator EnumType () { return EnumType(value); }
+        enum_field<EnumType,IntType> &operator=(EnumType ev) {
+            value = IntType(ev); return *this;
+        }
+    };
+*/
+
+/*
+template<>
+json_spirit::Value encode(df::history_event* rval){
+    Object val;
+    val.push_back(Pair("year",                                encode(rval->year)));
+    val.push_back(Pair("seconds",                             encode(rval->seconds)));
+    val.push_back(Pair("flags",                               encode(rval->flags)));
+    val.push_back(Pair("id",                                  encode(rval->id)));
+    return json_spirit::Value(val);
 }
-
-
-// Enums
-template <class T, class B, class TB>
-Value encode_enum(TB e){
-    return Value("Not Implemented");
-}
-
-template <class T, class TB>
-Value encode_enum(TB e){
-    return Value("Not Implemented");
-}
-
-/////
-///// Declarations
-/////
-
-// Strings
-Value _encode(std::string rval);
-
-// Ints of varius types
-Value _encode(int8_t rval);
-Value _encode(int16_t rval);
-Value _encode(int32_t rval);
-Value _encode(uint8_t rval);
-Value _encode(uint16_t rval);
-Value _encode(uint32_t rval);
-
-Value _encode(float rval);
-
-// Void
-Value _encode(void* rval);
+*/
 
 #endif

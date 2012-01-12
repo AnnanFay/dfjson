@@ -24,36 +24,6 @@ using namespace json_spirit;
 using namespace boost;
 using namespace DFHack;
 
-// Deref everything
-
-template<typename T> T & dereference(T &v) { return v; }
-template<typename T> T & dereference(T *v) { return dereference(*v); }
-
-template <class T>
-Value encode(T x) {
-    return _encode(dereference(x));
-}
-
-template <class T>
-Value encode(T* x) {
-    return _encode(dereference(x));
-}
-
-// Vectors
-template <class VecType>
-Value encode_vector(VecType vec){
-    Array out;
-    for (int i=0; i < vec.size(); i++){
-        out.push_back( encode(vec[i]) );
-    }
-    return Value(out);
-}
-
-// Arrays
-template <class ArrType>
-Value encode_array(ArrType arr, int size){
-    return Value("Not Implemented");
-}
 
 // Strings
 Value _encode(std::string rval) {
@@ -78,4 +48,12 @@ Value _encode(uint16_t rval) {
 }
 Value _encode(uint32_t rval) {
     return Value((long long)rval);
+}
+
+Value _encode(float rval) {
+    return Value(rval);
+}
+
+Value _encode(void* rval) {
+    return Value();
 }

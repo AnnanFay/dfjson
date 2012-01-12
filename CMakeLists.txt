@@ -11,18 +11,23 @@ include_directories (
 
 # A list of source files
 SET(PROJECT_SRCS
-    dgc.cpp
     encode.cpp
     encode-df.cpp
+    dgc.cpp
 )
 # A list of headers
 SET(PROJECT_HDRS
-    dgc.h
+    extract.h
+    df-headers.h
     encode.h
     encode-df.h
-    df-headers.h
+    dgc.h
 )
 SET_SOURCE_FILES_PROPERTIES( ${PROJECT_HDRS} PROPERTIES HEADER_FILE_ONLY TRUE)
+
+SET(PROJECT_LIBS
+    ${PROJECT_LIBS}
+)
 
 # mash them together (headers are marked as headers and nothing will try to compile them)
 LIST(APPEND PROJECT_SRCS ${PROJECT_HDRS})

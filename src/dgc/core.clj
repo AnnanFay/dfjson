@@ -15,6 +15,11 @@
 (defn not-nil? [foo]
   (not (nil? foo)))
 
+(defn in? 
+  "true if seq contains elm"
+  [elm seq]  
+  (some #(= elm %) seq))
+
 ;;;;;
 ;;;;; Recursive walking functions
 ;;;;;
@@ -56,15 +61,20 @@
 (declare render render-meta)
 (def ^:dynamic headers-only false)
 
+; returns :: separated path from df root to parent
+; only ld:meta compound and struct-type is included
 (defn type-path [zdata]
   (let [zpath (z/path zdata)
-        fpath (map
+        zpath (filter
+                #(in? (:ld:meta (:attrs %)) ["compound", "struct-type", "class-type"])
+                zpath)
+        zpath (map
                 #(some (:attrs %) [:type-name :ld:typedef-name])
                 zpath)
-        opath (remove nil? fpath)]
-    (if (empty? opath)
+        zpath (remove nil? zpath)]
+    (if (empty? zpath)
       "df::"
-      (str "df::" (s/join "::" opath) "::"))))
+      (str "df::" (s/join "::" zpath) "::"))))
 
 
 (def primitive-types ['int8_t 'uint8_t 'int16_t 'uint16_t 'int32_t 'uint32_t 'int64_t 'uint64_t 's-float 'bool 'flag-bit 'padding 'static-string])
@@ -132,43 +142,46 @@
 
 
 
-(defn format-add [zdata & [deref]]
-  (let [znode         (z/node zdata)
-        attrs (:attrs znode)
-        n     (or (:name attrs) (:ld:anon-name attrs))
-        t     (-> znode :tag)
-        m     (:ld:meta attrs)
-        size  (or (:size attrs) (:count attrs))
-        stype (:ld:subtype attrs)
-        path-to (type-path zdata)]
+(defn format-add [zdata & [deref get-symbol]]
+  (let [znode   (z/node zdata)
+        attrs   (:attrs znode)
+        n       (or (:name attrs) (:ld:anon-name attrs))
+        t       (-> znode :tag)
+        m       (:ld:meta attrs)
+        size    (or (:size attrs) (:count attrs))
+        stype   (:ld:subtype attrs)
+        path-to (type-path zdata)
+        indent  (apply str (repeat (- 36 (count n)) " "))
+        gsym    (or get-symbol ".")]
     (cond
-      (nil? n)                "" ; if there's no name we never want to display it.
-      (= t :code-helper)      ""
-      (= t :virtual-methods)  ""
-      (= stype "enum")        (str \tab "val.push_back(Pair(\"" n "\"," \tab
-                                "encode_enum<" (if (= m "compound") path-to "df::")
-                                            (or (:type-name attrs) (:ld:typedef-name attrs))
-                                            (if (:base-type attrs)
-                                              (str ", " (:base-type attrs)))
-                                            ">(" deref "rval." n ")));\n")
-                                ;"encode_enum(rval." n ")));\n")
-      (= stype "stl-vector")  (do
-                                ;(prn (str "vector(" n ") : " (container-item-type zdata)))
-                                (str \tab "val.push_back(Pair(\"" n "\"," \tab
-                                  ;"encode_vector<" (container-item-type zdata) ">(rval." n ")));\n")
-                                  "encode_vector(" deref "rval." n ")));\n"))
-      (= stype "flag-bit")    (str \tab "val.push_back(Pair(\"" n "\"," \tab "encode(" deref "rval.bits." n ")));\n")
-      (not-nil? size)         (str \tab "val.push_back(Pair(\"" n "\"," \tab
-                                ;"encode_array<" (container-item-type zdata) ">(rval." n ", " size ")));\n")
-                                "encode(" deref "rval." n ")));\n")
-      :else                   (if (and (= m "pointer") (> (count (:content znode)) 0))
-                                ;set child name to your name then format the child
-                                (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) (str deref "*"))
-                                (str \tab "val.push_back(Pair(\"" n "\"," \tab
-                                  (if (and (= m "global") (not-nil? deref))
-                                    (str "encode_class(" (subs deref 1))
-                                    (str "encode(" deref))
-                                  "rval." n ")));\n")))))
+      ; if it's something we don't get display nothing
+      (or
+          (nil? n)
+          (= t :code-helper)
+          (= t :virtual-methods))
+          ""
+      ; if it's a pointer that has children
+      ;set child name to your name then format the child
+      (and (= m "pointer") (> (count (:content znode)) 0))
+        (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) (str deref "*") gsym)
+      ;else display depending on type
+      :else (str
+        \tab "val.push_back(Pair(\"" n "\"," indent
+        (cond
+          (= stype "enum")        (str "encode<" (if (= m "compound") path-to "df::")
+                                                (or
+                                                  (:type-name attrs)
+                                                  (:ld:typedef-name attrs))
+                                                (if (:base-type attrs) (str ", " (:base-type attrs)))
+                                                ">(" deref "rval" gsym n ")")
+          (= stype "stl-vector")  (str "encode(" deref "rval" gsym n ")")
+          (= stype "flag-bit")    (str "encode(" deref "rval" gsym "bits" gsym n ")")
+          (not-nil? size)         (str "encode(" deref "rval" gsym n ")")
+          :else                   (str  (if (and (= m "global") (not-nil? deref) (> (count deref) 0))
+                                          (str "encode(" (subs deref 1))
+                                          (str "encode(" deref))
+                                        "rval" gsym n ")"))
+        "));\n"))))
 
 ;;;;;
 ;;;;; Render meta
@@ -210,7 +223,7 @@
       ""
       (str 
         "//[meta struct-type]\n"
-        "Object _encode(" path-to type (if (= (:ld:meta attrs) "class-type") "&") " rval)"
+        "Object encode(" path-to type (if (= (:ld:meta attrs) "class-type") "*") " rval)"
         (if headers-only
           ";\n"
           (str
@@ -225,11 +238,15 @@
                     ;(prn inherit "found ----> " (map format-add (loc-children inherit-loc)))
                     (str
                       "// From inheritance (" inherit ")\n"
-                      (apply str (map format-add (loc-children inherit-loc)))
+                      (if (= (:ld:meta attrs) "class-type")
+                        (apply str (map #(format-add % "" "->") (loc-children inherit-loc)))
+                        (apply str (map format-add (loc-children inherit-loc))))
                       "\n"))
                   ;(prn inherit " cannot be found! ")
                   )))
-            (apply str (map format-add (loc-children zdata)))
+            (if (= (:ld:meta attrs) "class-type")
+              (apply str (map #(format-add % "" "->") (loc-children zdata)))
+              (apply str (map format-add (loc-children zdata))))
             \tab "return val;\n"
             "}\n"
             (apply str (map render (loc-children zdata)))))))))
