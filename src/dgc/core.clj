@@ -61,6 +61,10 @@
 (declare render render-meta)
 (def ^:dynamic headers-only false)
 
+(defn cmt [& text]
+  (if (not headers-only)
+    (str "//" (apply str text) "\n")))
+
 ; returns :: separated path from df root to parent
 ; only ld:meta compound and struct-type is included
 (defn type-path [zdata]
@@ -166,7 +170,7 @@
         (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) (str deref "*") gsym)
       ;else display depending on type
       :else (str
-        \tab "val.push_back(Pair(\"" n "\"," indent
+        \tab \tab "val.push_back(Pair(\"" n "\"," indent
         (cond
           (= stype "enum")        (str "encode<" (if (= m "compound") path-to "df::")
                                                 (or
@@ -175,7 +179,7 @@
                                                 (if (:base-type attrs) (str ", " (:base-type attrs)))
                                                 ">(" deref "rval" gsym n ")")
           (= stype "stl-vector")  (str "encode(" deref "rval" gsym n ")")
-          (= stype "flag-bit")    (str "encode(" deref "rval" gsym "bits" gsym n ")")
+          (= stype "flag-bit")    (str "encode(+ " deref "rval" gsym "bits" gsym n ")")
           (not-nil? size)         (str "encode(" deref "rval" gsym n ")")
           :else                   (str  (if (and (= m "global") (not-nil? deref) (> (count deref) 0))
                                           (str "encode(" (subs deref 1))
@@ -190,45 +194,47 @@
 ; A std::string
 ; manually added
 (defn render-meta-primitive [zdata]
-  ;"//[meta primitive]\n")
+  ;(cmt "[meta primitive]"))
   "")
 
 (defn render-meta-pointer [zdata]
       (str
-        "//[meta pointer - rendering children]\n"
+        (cmt "[meta pointer - rendering children]")
         (apply str (map render (loc-children zdata)))))
 
 ; char array i.e. char[size]
 (defn render-meta-bytes [zdata]
-  "//[meta bytes]\n")
+  (cmt "[meta bytes]"))
 
 ; uint8_t uint16_t uint32_t
 ; manually added
 (defn render-meta-number [zdata]
-  ;"//[meta number]\n")
+  ;(cmt "[meta number]"))
   "")
 
 (defn render-meta-global [zdata]
-  "//[meta global]\n")
+  (cmt "[meta global]"))
 
 (defn render-meta-enum-type [zdata]
-  "//[meta-enum-type]\n")
+  (cmt "[meta-enum-type]"))
 
-(defn render-meta-struct-type [zdata]
+(defn render-meta-struct-type [zdata & [pointerize]]
   (let [{:keys [tag attrs content]} (z/node zdata)
         path-to (type-path zdata)
         inherit (:inherits-from attrs)
-        type    (or (:type-name attrs) (:ld:typedef-name attrs))]
+        type    (or (:type-name attrs) (:ld:typedef-name attrs))
+        is-class (= (:ld:meta attrs) "class-type")]
     (if (nil? type)
       ""
       (str 
-        "//[meta struct-type]\n"
-        "Object encode(" path-to type (if (= (:ld:meta attrs) "class-type") "*") " rval)"
-        (if headers-only
-          ";\n"
-          (str
+        (cmt "[meta struct-type]")
+        \tab "js::Value encode(" path-to type (if (and is-class (nil? pointerize)) "*" "&") " rval)"
+        (cond
+          headers-only ";\n"
+          pointerize  "{return encode(&rval);}\n"
+          :else (str
             "{\n"
-            (str \tab "Object val;\n")
+            (str \tab "js::Object val;\n")
             (if (not-nil? inherit)
               (let [inherit-loc (walk-find
                                   #(and (= (-> % :attrs :type-name) inherit) (= (:tag %) :ld:global-type))
@@ -237,7 +243,7 @@
                   (do
                     ;(prn inherit "found ----> " (map format-add (loc-children inherit-loc)))
                     (str
-                      "// From inheritance (" inherit ")\n"
+                      (cmt " From inheritance (" inherit ")")
                       (if (= (:ld:meta attrs) "class-type")
                         (apply str (map #(format-add % "" "->") (loc-children inherit-loc)))
                         (apply str (map format-add (loc-children inherit-loc))))
@@ -247,9 +253,12 @@
             (if (= (:ld:meta attrs) "class-type")
               (apply str (map #(format-add % "" "->") (loc-children zdata)))
               (apply str (map format-add (loc-children zdata))))
-            \tab "return val;\n"
-            "}\n"
-            (apply str (map render (loc-children zdata)))))))))
+            \tab "return js::Value(val);\n"
+            "}\n"))
+            (if (and is-class (nil? pointerize))
+              (render-meta-struct-type zdata true))
+            (if (nil? pointerize)
+              (apply str (map render (loc-children zdata))))))))
 
 ; manual template
 (defn render-meta-static-array [zdata]
@@ -258,29 +267,29 @@
     (if (not-nil? (:ld:typedef-name attrs))
       (render-meta-struct-type zdata)
       (str
-        "//[meta static-array - rendering children]\n"
+        (cmt "[meta static-array - rendering children]")
         (apply str (map render (loc-children zdata)))))))
 
 
 (defn render-meta-compound [zdata]
   (let [{:keys [tag attrs content]} (z/node zdata)
         stype (:ld:subtype attrs)]
-    (str "//[meta compound - " stype "] \n"
+    (str (cmt "[meta compound - " stype "] ")
     (if (= stype "enum")
       ""
       (render-meta-struct-type zdata)))))
 
 ;same as struct
 (defn render-meta-class-type [zdata]
-  (str "//[meta class-type] "
+  (str (cmt "[meta class-type] ")
     (render-meta-struct-type zdata)))
 
 (defn render-meta-bitfield-type [zdata]
-  (str "//[meta bitfield type] "
+  (str (cmt "[meta bitfield type] ")
     (render-meta-struct-type zdata)))
 
 (defn render-meta-container [zdata]
-  (str "//[meta-container]\n"
+  (str (cmt "[meta-container]")
     (apply str (map render (loc-children zdata)))))
 
 
@@ -289,19 +298,19 @@
 ;;;;;
 
 (defn render-comment [zdata]
-  "//[comment]\n")
+  (cmt "[comment]"))
 
 (defn render-code-helper [zdata]
-  "//[code helper]\n")
+  (cmt "[code helper]"))
 
 (defn render-virtual-methods [zdata]
-  "//[virtual-methods]\n")
+  (cmt "[virtual-methods]"))
 
 (defn render-ld:field [zdata]
-  "//[field]\n")
+  (cmt "[field]"))
 
 (defn render-enum-item [zdata]
-  "//[enum item]\n")
+  (cmt "[enum item]"))
 
 (defn render-ld:global-type [zdata]
   (render-meta zdata))
@@ -349,15 +358,16 @@
 
 (defn -main []
   (let [data-file "codegen.out.xml"
-        header    "encode-df.h"
-        source    "encode-df.cpp"
+        header    "encode.h"
+        source    "encode.cpp"
         zdata     (z/xml-zip (parse data-file))
         outlog    "log-out.cpp"]
     (spit source  (str
-                    (slurp "encode-df.head.cpp")
-                    (render zdata)))
+                    (slurp "encode.head.cpp")
+                    (render zdata)
+                    (slurp "encode.tail.cpp")))
     (binding [headers-only true]
       (spit header  (str
-                    (slurp "encode-df.head.h")
+                    (slurp "encode.head.h")
                     (render zdata)
-                    (slurp "encode-df.tail.h"))))))
+                    (slurp "encode.tail.h"))))))

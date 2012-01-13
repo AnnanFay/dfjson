@@ -24,6 +24,7 @@ using namespace std;
 using namespace json_spirit;
 using namespace boost;
 using namespace DFHack;
+using namespace dfjson;
 
 using df::global::world;
 
@@ -51,7 +52,8 @@ DFhackCExport command_result dgc (Core * c, vector <string> & parameters)
     // Suspend DF
     CoreSuspender suspend(c);
 
-    Value val = encode(*world);
+    //Value val = encode(world->units);
+    Value val = encode(world->units.all);
 
     ofstream os( "Dwarves.json" );
     write_stream( val, os, single_line_arrays | remove_trailing_zeros);
