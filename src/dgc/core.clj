@@ -24,7 +24,8 @@
 ;;;;; Recursive walking functions
 ;;;;;
 
-; Walks a tree applying f to every node with path
+; Walks a tree applying f to every node
+; f is passed the node and the path to that node
 ; f returns the new node!
 (defn walk [f form]
   (loop [loc form]
@@ -48,6 +49,7 @@
       (pred (z/node loc)) loc
       :else (recur (z/next loc)))))
 
+;returns the locs of all children (instead of nodes)
 (defn loc-children [loc]
   (loop [child (z/down loc) children []]
     (if (nil? child)
@@ -59,10 +61,12 @@
 ;;;;;
 
 (declare render render-meta)
+; These are a bit bad!
 (def ^:dynamic headers-only false)
+(def ^:dynamic comments true)
 
 (defn cmt [& text]
-  (if (not headers-only)
+  (if comments
     (str "//" (apply str text) "\n")))
 
 ; returns :: separated path from df root to parent
@@ -92,7 +96,7 @@
 (defn get-primitive-type [subtype]
   (str (get primitive-type-aliases subtype subtype)))
 
-(defn decode_type_name_ref [&more]
+(defn decode_type_name_ref [a & more]
   "NOT IMPLEMENTED")
 
 (declare get-type)
@@ -113,6 +117,24 @@
       "stl-vector"      (str "std::vector<" (container-item-type zdata "void*") ">")
       "df-flagarray"    (str "BitArray<" (or (decode_type_name_ref zdata '-attr_name '=> 'index-enum, '-force_type '=> 'enum-type) "int") ">"))))
 
+(defn get-base-type [zdata]
+  (let [znode         (z/node zdata)
+        attrs         (:attrs znode)
+        m             (:ld:meta attrs)
+        subtype       (:ld:subtype attrs)
+        type-name     (or (:ld:type-name attrs) (:type-name attrs))
+        typedef-name  (:ld:typedef-name attrs)
+        size          (or (:size attrs) 0)
+        alignment     (or (:alignment attrs) 1)
+        atable        [nil "char" "short" nil "int"]
+        path-to       (type-path zdata)]
+    
+    (if (or (= m "static-array") (= m "pointer") (= m "container"))
+      (if (empty? (:content znode))
+        "Fubar"
+        (get-base-type (z/down zdata)))
+      (get-type zdata))))
+
 (defn get-type [zdata & [weak void local]]
   (let [znode         (z/node zdata)
         attrs         (:attrs znode)
@@ -128,21 +150,26 @@
       (not-nil? typedef-name)     (str path-to typedef-name)
       (= m "number")              (get-primitive-type subtype)
       (= m "bytes")
-        (if (and (not-nil? local) (nil? weak))
-          (cond
-            (= subtype "static-string") (str "char[" size "]")
-            (= subtype "padding")       (str (nth alignment atable) "[" (/ size alignment) "]")
-            :else                       (throw Exception "Foo"))
-          (get-primitive-type subtype))
+                                  (if (and (not-nil? local) (nil? weak))
+                                    (cond
+                                      (= subtype "static-string") (str "char[" size "]")
+                                      (= subtype "padding")       (str (nth alignment atable) "[" (/ size alignment) "]")
+                                      :else                       (throw Exception "Foo"))
+                                    (get-primitive-type subtype))
       (= m "global")              (str "df::" type-name)
-      (= m "compound")  (cond
-                          (= subtype "enum")      "enum_field<" typedef-name ", " (:base-type attrs)">"
-                          (= subtype "bitfield")  typedef-name
-                          :else                   typedef-name)
+      (= m "compound")            (cond
+                                    (= subtype "enum")      "enum_field<" typedef-name ", " (:base-type attrs)">"
+                                    (= subtype "bitfield")  typedef-name
+                                    :else                   typedef-name)
       (= m "pointer")             (str (container-item-type zdata) "*")
       (= m "static-array")        (str (container-item-type zdata) "[]")
       (= m "primitive")           "std::string"
-      (= m "container")           (get-container-type zdata))))
+      (= m "container")           (get-container-type zdata)
+      (= m "class-type")          (str path-to (or type-name typedef-name))
+      (= m "bitfield-type")       (str path-to (or type-name typedef-name))
+      (= m "struct-type")         (str path-to (or type-name typedef-name))
+      (= m "enum-type")           (str path-to (or type-name typedef-name))
+      :else                       (str "[UNKNOWN:" m "]"))))
 
 
 
@@ -158,19 +185,22 @@
         indent  (apply str (repeat (- 36 (count n)) " "))
         gsym    (or get-symbol ".")]
     (cond
-      ; if it's something we don't get display nothing
       (or
           (nil? n)
           (= t :code-helper)
           (= t :virtual-methods))
           ""
+
       ; if it's a pointer that has children
       ;set child name to your name then format the child
       (and (= m "pointer") (> (count (:content znode)) 0))
         (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) (str deref "*") gsym)
       ;else display depending on type
       :else (str
-        \tab \tab "val.push_back(Pair(\"" n "\"," indent
+        \tab \tab 
+        ; If it's a class/struct type that is in the ansestor chain then we don't render to stop infinite recursion!
+        (if (not-nil? (re-find (re-pattern (get-base-type zdata)) path-to)) "//")
+        "val.push_back(Pair(\"" n "\"," indent
         (cond
           (= stype "enum")        (str "encode<" (if (= m "compound") path-to "df::")
                                                 (or
@@ -185,7 +215,7 @@
                                           (str "encode(" (subs deref 1))
                                           (str "encode(" deref))
                                         "rval" gsym n ")"))
-        "));\n"))))
+        "));" indent "//" (get-type zdata) "\n"))))
 
 ;;;;;
 ;;;;; Render meta
@@ -228,13 +258,15 @@
       ""
       (str 
         (cmt "[meta struct-type]")
-        \tab "js::Value encode(" path-to type (if (and is-class (nil? pointerize)) "*" "&") " rval)"
+        \tab "js::Value encode(" (get-type zdata) (if (and is-class (nil? pointerize)) "*" "&") " rval)"
         (cond
           headers-only ";\n"
           pointerize  "{return encode(&rval);}\n"
           :else (str
-            "{\n"
-            (str \tab "js::Object val;\n")
+            " {\n"
+            (if (and is-class (nil? pointerize))
+              (str \tab \tab "if(!rval){return Value();};\n"))
+            \tab \tab "js::Object val;\n"
             (if (not-nil? inherit)
               (let [inherit-loc (walk-find
                                   #(and (= (-> % :attrs :type-name) inherit) (= (:tag %) :ld:global-type))
@@ -253,8 +285,8 @@
             (if (= (:ld:meta attrs) "class-type")
               (apply str (map #(format-add % "" "->") (loc-children zdata)))
               (apply str (map format-add (loc-children zdata))))
-            \tab "return js::Value(val);\n"
-            "}\n"))
+            \tab \tab "return js::Value(val);\n"
+            \tab "}\n"))
             (if (and is-class (nil? pointerize))
               (render-meta-struct-type zdata true))
             (if (nil? pointerize)
@@ -352,22 +384,45 @@
             f       (ns-resolve *ns* (symbol fn-name))]
         (f zdata)))))
 
+(defn write-part [filepath [type part]]
+  (let [ext (if headers-only "h" "cpp")]
+      (spit (str filepath (subs type 4) "." ext) (str
+                              (slurp (str "appendage/encode-df.head." ext))
+                              part
+                              (slurp (str "appendage/encode-df.tail." ext))))))
+
+; spits into multiple files
+(defn write-parts [filepath zdata]
+  (map (partial write-part filepath) (map #(vector (get-type %) (render %)) (loc-children zdata))))
+
+(defn write-inc [type]
+  (str "#include \"" type ".h\"\n"))
+
+(defn master-header [zdata]
+  (str
+    "#ifndef DFJSON_MASTER_H\n"
+    "#define DFJSON_MASTER_H\n"
+    (apply str (map write-inc (map #(subs (get-type %) 4) (loc-children zdata))))
+    "#endif"))
+
+(defn write-master-header [filepath zdata]
+  (spit (str filepath "master.h") (master-header zdata)))
+
 ;;;;;
 ;;;;; Main function
 ;;;;; 
 
 (defn -main []
   (let [data-file "codegen.out.xml"
-        header    "encode.h"
-        source    "encode.cpp"
-        zdata     (z/xml-zip (parse data-file))
-        outlog    "log-out.cpp"]
-    (spit source  (str
-                    (slurp "encode.head.cpp")
-                    (render zdata)
-                    (slurp "encode.tail.cpp")))
-    (binding [headers-only true]
-      (spit header  (str
-                    (slurp "encode.head.h")
-                    (render zdata)
-                    (slurp "encode.tail.h"))))))
+        filepath  "include/dfjson/"
+        zdata     (z/xml-zip (parse data-file))]
+      (do 
+        (def comments false)
+        ; print out source files
+        (def headers-only false)
+        (prn (write-parts filepath zdata))
+        ; print out header files
+        (def headers-only true)
+        (prn (write-parts filepath zdata))
+        ; print out master header file
+        (prn (write-master-header filepath zdata)))))
