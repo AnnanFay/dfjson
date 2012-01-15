@@ -93,6 +93,9 @@
     'flag-bit       'void
     'padding        'void})
 
+; These do not work.
+(def black-list ["df::creature_raw" "df::world::T_unk_19325c"])
+
 (defn get-primitive-type [subtype]
   (str (get primitive-type-aliases subtype subtype)))
 
@@ -115,7 +118,7 @@
     (case subtype
       "stl-bit-vector"  "std::vector<bool>"
       "stl-vector"      (str "std::vector<" (container-item-type zdata "void*") ">")
-      "df-flagarray"    (str "BitArray<" (or (decode_type_name_ref zdata '-attr_name '=> 'index-enum, '-force_type '=> 'enum-type) "int") ">"))))
+      "df-flagarray"    (str "BitArray<" (or (decode_type_name_ref zdata) "int") ">"))))
 
 (defn get-base-type [zdata]
   (let [znode         (z/node zdata)
@@ -189,18 +192,20 @@
           (nil? n)
           (= t :code-helper)
           (= t :virtual-methods))
-          ""
+        ""
 
       ; if it's a pointer that has children
       ;set child name to your name then format the child
       (and (= m "pointer") (> (count (:content znode)) 0))
         (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) gsym)
+      
+      ; if it's an enum but not in global scope we can't currently give it's text
+      (and (= stype "enum") (not (= m "global")))
+        (str  \tab \tab "val.push_back(Pair(\"" n "\"," indent "encode(json, rval" gsym n ".value)));" indent "//" (get-type zdata) "\n")
+      
       ;else display depending on type
       :else (str
         \tab \tab 
-        ; If it's a class/struct type that is in the ansestor chain then we don't render to stop infinite recursion!
-        (if (not-nil? (re-find (re-pattern (get-base-type zdata)) path-to)) "//recursive: ")
-        (if (= stype "enum") "//enum: ")
         "val.push_back(Pair(\"" n "\"," indent
         (cond
           (= stype "enum")        (str "encode(json, rval" gsym n ")")
@@ -249,21 +254,25 @@
 
 (defn render-meta-struct-type [zdata & [pointerize]]
   (let [{:keys [tag attrs content]} (z/node zdata)
-        path-to (type-path zdata)
-        inherit (:inherits-from attrs)
-        type    (or (:type-name attrs) (:ld:typedef-name attrs))
-        is-class (= (:ld:meta attrs) "class-type")]
-    (if (nil? type)
+        path-to   (type-path zdata)
+        inherit   (:inherits-from attrs)
+        type      (or (:type-name attrs) (:ld:typedef-name attrs))
+        is-class  (= (:ld:meta attrs) "class-type")
+        full-type (get-type zdata)]
+    (if (or 
+          (nil? type)
+          (in?  full-type black-list))
       ""
       (str 
         (cmt "[meta struct-type]")
-        \tab "js::Value encode(jsmap & json, " (get-type zdata) (if (nil? pointerize) "*" "&") " rval)"
+        \tab "js::Value encode(jsmap & json, " full-type (if (nil? pointerize) "*" "&") " rval)"
         
         (cond
           headers-only ";\n"
           pointerize  "{return encode(json, &rval);}\n"
           :else (str
                   " {\n"
+                  \tab \tab "log(json, rval);\n"
                   (if (nil? pointerize)
                     (str \tab \tab "if(!rval){return Value();};\n"))
                   
@@ -400,7 +409,7 @@
 ;;;;; 
 
 (defn -main []
-  (let [data-file "codegen.out.xml"
+  (let [data-file "../../library/include/df/codegen.out.xml"
         filename  "encode-df"
         zdata     (z/xml-zip (parse data-file))]
       (do 
