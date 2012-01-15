@@ -421,5 +421,6 @@
         (def headers-only true)
         (prn (write-code filename zdata)))))
 
+; If called on the command line
 (if *command-line-args*
   (apply -main *command-line-args*))

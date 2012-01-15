@@ -1,7 +1,10 @@
-PROJECT (dgc)
+PROJECT (dfjson)
 
 # Generate the encoding files
-execute_process(COMMAND java -cp lib/clojure-1.3.0.jar clojure.main src/dfjson/core.clj ../../library/include/df/codegen.out.xml)
+execute_process(
+    COMMAND cd ../plugins/dgc
+    COMMAND java -cp lib/clojure-1.3.0.jar clojure.main src/dfjson/core.clj ../../library/include/df/codegen.out.xml
+    COMMAND CD ../../build)
 
 # WTF
 include_directories (
@@ -47,11 +50,11 @@ ELSE(UNIX)
     )
 ENDIF(UNIX)
 # this makes sure all the stuff is put in proper places and linked to dfhack
-DFHACK_PLUGIN(dgc ${PROJECT_SRCS} LINK_LIBRARIES ${PROJECT_LIBS})
+# DFHACK_PLUGIN(dgc ${PROJECT_SRCS} LINK_LIBRARIES ${PROJECT_LIBS})
 
-install(DIRECTORY gui/
-        DESTINATION "dgc"
-        PATTERN "CVS" EXCLUDE
-        PATTERN ".svn" EXCLUDE
-        PATTERN ".git" EXCLUDE)
+#install(DIRECTORY gui/
+#        DESTINATION "dgc"
+#        PATTERN "CVS" EXCLUDE
+#        PATTERN ".svn" EXCLUDE
+#        PATTERN ".git" EXCLUDE)
 
