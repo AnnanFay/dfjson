@@ -1,13 +1,16 @@
-# dgc
+# dfjson
 
-FIXME: write description
+Encodes DF structs and classes into JSON that can be exported to files.
+
+Written in C++ and clojure. The clojure generates most of the struct specific code.
 
 ## Usage
 
-FIXME: write
+To generate the C++ encoding code run:
+    lein run /path/to/codegen.out.xml
+OR
+    java -cp lib/clojure-1.3.0.jar clojure.main src/dfjson/core.clj /path/to/codegen.out.xml
 
 ## License
 
-Copyright (C) 2012 FIXME
-
-Distributed under the Eclipse Public License, the same as Clojure.
+TBD - some sort of copyleft/open source

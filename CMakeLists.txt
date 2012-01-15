@@ -1,5 +1,8 @@
 PROJECT (dgc)
 
+# Generate the encoding files
+execute_process(COMMAND java -cp lib/clojure-1.3.0.jar clojure.main src/dfjson/core.clj ../../library/include/df/codegen.out.xml)
+
 # WTF
 include_directories (
     .

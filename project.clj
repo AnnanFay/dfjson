@@ -1,4 +1,4 @@
-(defproject dgc "1.0.0-SNAPSHOT"
-  :description "FIXME: write description"
+(defproject dfjson "1.0.0-SNAPSHOT"
+  :description "Generates dfjson C++ encoding scripts for dfhack"
   :dependencies [[org.clojure/clojure "1.3.0"]]
-  :main dgc.core)
+  :main dfjson.core)

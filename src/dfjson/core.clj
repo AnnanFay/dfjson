@@ -1,4 +1,4 @@
-(ns dgc.core
+(ns dfjson.core
   "Description... "
   (:require [clojure.zip :as z]
             [clojure.string :as s])
@@ -373,7 +373,7 @@
   (apply str (map render (loc-children zdata))))
 
 (defn render-meta [zdata]
-  (in-ns 'dgc.core) ; WTF!!!!!!!
+  (in-ns 'dfjson.core) ; WTF!!!!!!!
   (if (string? (z/node zdata))
     ""
     (do
@@ -384,7 +384,7 @@
         (f zdata)))))
 
 (defn render [zdata]
-  (in-ns 'dgc.core) ; WTF!!!!!!!
+  (in-ns 'dfjson.core) ; WTF!!!!!!!
   ;(try (z/node zdata)
   ;  (catch Exception e (prn zdata)))
   (if (string? (z/node zdata))
@@ -408,8 +408,8 @@
 ;;;;; Main function
 ;;;;; 
 
-(defn -main []
-  (let [data-file "../../library/include/df/codegen.out.xml"
+(defn -main [& args]
+  (let [data-file (or (first args) "codegen.out.xml")
         filename  "encode-df"
         zdata     (z/xml-zip (parse data-file))]
       (do 
@@ -420,3 +420,6 @@
         ; print out header files
         (def headers-only true)
         (prn (write-code filename zdata)))))
+
+(if *command-line-args*
+  (apply -main *command-line-args*))
