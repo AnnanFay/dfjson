@@ -173,7 +173,7 @@
 
 
 
-(defn format-add [zdata & [deref get-symbol]]
+(defn format-add [zdata & [get-symbol]]
   (let [znode   (z/node zdata)
         attrs   (:attrs znode)
         n       (or (:name attrs) (:ld:anon-name attrs))
@@ -194,27 +194,26 @@
       ; if it's a pointer that has children
       ;set child name to your name then format the child
       (and (= m "pointer") (> (count (:content znode)) 0))
-        (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) (str deref "*") gsym)
+        (format-add (z/edit (z/down zdata) #(assoc % :attrs (assoc (:attrs %) :name n))) gsym)
       ;else display depending on type
       :else (str
         \tab \tab 
         ; If it's a class/struct type that is in the ansestor chain then we don't render to stop infinite recursion!
-        (if (not-nil? (re-find (re-pattern (get-base-type zdata)) path-to)) "//")
+        (if (not-nil? (re-find (re-pattern (get-base-type zdata)) path-to)) "//recursive: ")
+        (if (= stype "enum") "//enum: ")
         "val.push_back(Pair(\"" n "\"," indent
         (cond
-          (= stype "enum")        (str "encode<" (if (= m "compound") path-to "df::")
-                                                (or
-                                                  (:type-name attrs)
-                                                  (:ld:typedef-name attrs))
-                                                (if (:base-type attrs) (str ", " (:base-type attrs)))
-                                                ">(" deref "rval" gsym n ")")
-          (= stype "stl-vector")  (str "encode(" deref "rval" gsym n ")")
-          (= stype "flag-bit")    (str "encode(+ " deref "rval" gsym "bits" gsym n ")")
-          (not-nil? size)         (str "encode(" deref "rval" gsym n ")")
-          :else                   (str  (if (and (= m "global") (not-nil? deref) (> (count deref) 0))
-                                          (str "encode(" (subs deref 1))
-                                          (str "encode(" deref))
-                                        "rval" gsym n ")"))
+          (= stype "enum")        (str "encode(json, rval" gsym n ")")
+;                                                 <" (if (= m "compound") path-to "df::")
+;                                                (or
+;                                                  (:type-name attrs)
+;                                                  (:ld:typedef-name attrs))
+;                                                (if (:base-type attrs) (str ", " (:base-type attrs)))
+;                                                ">
+          (= stype "flag-bit")    (str "encode(json, +rval" gsym "bits." n ")")
+          (= stype "stl-vector")  (str "encode(json, rval" gsym n ")")
+          (not-nil? size)         (str "encode(json, rval" gsym n ")")
+          :else                   (str "encode(json, rval" gsym n ")"))
         "));" indent "//" (get-type zdata) "\n"))))
 
 ;;;;;
@@ -234,7 +233,7 @@
 
 ; char array i.e. char[size]
 (defn render-meta-bytes [zdata]
-  (cmt "[meta bytes]"))
+  (cmt "[meta bytes] NR"))
 
 ; uint8_t uint16_t uint32_t
 ; manually added
@@ -243,10 +242,10 @@
   "")
 
 (defn render-meta-global [zdata]
-  (cmt "[meta global]"))
+  (cmt "[meta global] NR"))
 
 (defn render-meta-enum-type [zdata]
-  (cmt "[meta-enum-type]"))
+  (cmt "[meta-enum-type] NR"))
 
 (defn render-meta-struct-type [zdata & [pointerize]]
   (let [{:keys [tag attrs content]} (z/node zdata)
@@ -258,39 +257,43 @@
       ""
       (str 
         (cmt "[meta struct-type]")
-        \tab "js::Value encode(" (get-type zdata) (if (and is-class (nil? pointerize)) "*" "&") " rval)"
+        \tab "js::Value encode(jsmap & json, " (get-type zdata) (if (nil? pointerize) "*" "&") " rval)"
+        
         (cond
           headers-only ";\n"
-          pointerize  "{return encode(&rval);}\n"
+          pointerize  "{return encode(json, &rval);}\n"
           :else (str
-            " {\n"
-            (if (and is-class (nil? pointerize))
-              (str \tab \tab "if(!rval){return Value();};\n"))
-            \tab \tab "js::Object val;\n"
-            (if (not-nil? inherit)
-              (let [inherit-loc (walk-find
-                                  #(and (= (-> % :attrs :type-name) inherit) (= (:tag %) :ld:global-type))
-                                  (-> zdata z/root z/xml-zip))]
-                (if (not-nil? inherit-loc)
-                  (do
-                    ;(prn inherit "found ----> " (map format-add (loc-children inherit-loc)))
-                    (str
-                      (cmt " From inheritance (" inherit ")")
-                      (if (= (:ld:meta attrs) "class-type")
-                        (apply str (map #(format-add % "" "->") (loc-children inherit-loc)))
-                        (apply str (map format-add (loc-children inherit-loc))))
-                      "\n"))
-                  ;(prn inherit " cannot be found! ")
-                  )))
-            (if (= (:ld:meta attrs) "class-type")
-              (apply str (map #(format-add % "" "->") (loc-children zdata)))
-              (apply str (map format-add (loc-children zdata))))
-            \tab \tab "return js::Value(val);\n"
-            \tab "}\n"))
-            (if (and is-class (nil? pointerize))
-              (render-meta-struct-type zdata true))
-            (if (nil? pointerize)
-              (apply str (map render (loc-children zdata))))))))
+                  " {\n"
+                  (if (nil? pointerize)
+                    (str \tab \tab "if(!rval){return Value();};\n"))
+                  
+                  ; GLOBAL - check if it already exists
+                  (if (= tag :ld:global-type)
+                    (str  \tab \tab "std::string p = global_exists(json, rval);\n"
+                          \tab \tab "if (p != \"\"){ return js::Value(p);}\n"))
+
+                  \tab \tab "js::Object val;\n"
+                  ; INHERITANCE
+                  (if (not-nil? inherit)
+                    (let [inherit-loc (walk-find
+                                        #(and (= (-> % :attrs :type-name) inherit) (= (:tag %) :ld:global-type))
+                                        (-> zdata z/root z/xml-zip))]
+                      (if (not-nil? inherit-loc)
+                        (str
+                          (cmt " From inheritance (" inherit ")")
+                          (apply str (map #(format-add % "->") (loc-children inherit-loc)))
+                          "\n"))))
+                  (apply str (map #(format-add % "->") (loc-children zdata)))
+          ; GLOBAL
+          (if (= tag :ld:global-type)
+            (str \tab \tab "return js::Value(global_add(json, rval, val));\n")
+            (str \tab \tab "return js::Value(val);\n"))
+
+          \tab "}\n"))
+
+        (if (nil? pointerize)
+          (render-meta-struct-type zdata true)
+          (apply str (map render (loc-children zdata))))))))
 
 ; manual template
 (defn render-meta-static-array [zdata]
@@ -384,29 +387,13 @@
             f       (ns-resolve *ns* (symbol fn-name))]
         (f zdata)))))
 
-(defn write-part [filepath [type part]]
-  (let [ext (if headers-only "h" "cpp")]
-      (spit (str filepath (subs type 4) "." ext) (str
-                              (slurp (str "appendage/encode-df.head." ext))
-                              part
-                              (slurp (str "appendage/encode-df.tail." ext))))))
-
 ; spits into multiple files
-(defn write-parts [filepath zdata]
-  (map (partial write-part filepath) (map #(vector (get-type %) (render %)) (loc-children zdata))))
-
-(defn write-inc [type]
-  (str "#include \"" type ".h\"\n"))
-
-(defn master-header [zdata]
-  (str
-    "#ifndef DFJSON_MASTER_H\n"
-    "#define DFJSON_MASTER_H\n"
-    (apply str (map write-inc (map #(subs (get-type %) 4) (loc-children zdata))))
-    "#endif"))
-
-(defn write-master-header [filepath zdata]
-  (spit (str filepath "master.h") (master-header zdata)))
+(defn write-code [filename zdata]
+  (let [ext (if headers-only "h" "cpp")]
+      (spit (str filename "." ext) (str
+                              (slurp (str "appendage/encode-df.head." ext))
+                              (render zdata)
+                              (slurp (str "appendage/encode-df.tail." ext))))))
 
 ;;;;;
 ;;;;; Main function
@@ -414,15 +401,13 @@
 
 (defn -main []
   (let [data-file "codegen.out.xml"
-        filepath  "include/dfjson/"
+        filename  "encode-df"
         zdata     (z/xml-zip (parse data-file))]
       (do 
         (def comments false)
         ; print out source files
         (def headers-only false)
-        (prn (write-parts filepath zdata))
+        (prn (write-code filename zdata))
         ; print out header files
         (def headers-only true)
-        (prn (write-parts filepath zdata))
-        ; print out master header file
-        (prn (write-master-header filepath zdata)))))
+        (prn (write-code filename zdata)))))

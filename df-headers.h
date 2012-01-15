@@ -1,5 +1,4 @@
-#ifndef DF_HEADERS
-#define DF_HEADERS
+#pragma once
 #include <df/activity_entry.h>
 #include <df/activity_event_combat_trainingst.h>
 #include <df/activity_event.h>
@@ -491,4 +490,3 @@
 #include <df/world_site.h>
 #include <df/world_site_unk130.h>
 #include <df/world_underground_region.h>
-#endif

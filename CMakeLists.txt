@@ -4,24 +4,27 @@ PROJECT (dgc)
 include_directories (
     .
     include/
-    include/boost_1_48_0/
-    include/json_spirit/
     ${CMAKE_SOURCE_DIR}
 )
 
 # A list of source files
 SET(PROJECT_SRCS
+    encode-df.cpp
     encode.cpp
-    # encode-df.cpp
     dgc.cpp
 )
-# A list of headers
+## A list of headers
 SET(PROJECT_HDRS
     df-headers.h
-    # encode-df.h
+    encode-df.h
     encode.h
     dgc.h
 )
+
+# Some globbing
+#FILE(GLOB PROJECT_SRCS *.cpp)
+#FILE(GLOB PROJECT_HDRS *.h)
+
 SET_SOURCE_FILES_PROPERTIES( ${PROJECT_HDRS} PROPERTIES HEADER_FILE_ONLY TRUE)
 
 SET(PROJECT_LIBS

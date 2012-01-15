@@ -1,161 +1,252 @@
-#ifndef DF_ENCODE
-#define DF_ENCODE
-
-#include <iostream>
-#include <fstream>
+#pragma once
 #include <vector>
 #include <string>
+#include <sstream>
+#include <typeinfo>
+#include <cxxabi.h> 
 
-#include <boost/lexical_cast.hpp>
-#include <json_spirit/json_spirit_reader_template.h>
+// REMOVE
+#include <iostream>
+#include <fstream>
+// ^THOSE
+
 #include <json_spirit/json_spirit_writer_template.h>
 
-#include <DFHack.h>
-#include <Core.h>
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
 #include <DataDefs.h>
+//#include <DFHack.h>
 
-#include <df-headers.h>
-
-#include <encode-df.h>
+#include "df-headers.h"
+#include "encode-df.h"
 
 using namespace std;
 using namespace json_spirit;
-using namespace boost;
-using namespace DFHack;
+namespace js = json_spirit;
+//using namespace DFHack;
 
-/*
-    Encoding functions
-*/
+typedef std::map<std::string, js::Object> jsmap;
 
-/*
-    General Case
-*/
-template <class T>
-json_spirit::Value encode(T rval) {
-    // Don't assume that it can be encoded by something else, just pass back nothing
-    return json_spirit::Value();
-}
+namespace dfjson
+{
 
-/*
-    Pointers
-*/
-template <class T>
-json_spirit::Value encode(T* rval) {
-    // deref and encode
-    return encode(*rval);
-}
+    // DECLARATIONS
 
-// A pointer to an unknown
-json_spirit::Value encode(void* rval) {
-    return json_spirit::Value();
-}
+    template <class T>
+    void log(jsmap & json, T * rval);
+    template <class T>
+    void log(jsmap & json, T & rval);
+    template <class T, class M>
+    void log(jsmap & json, T & rval, M msg);
+    template <class T, class M>
+    void log(jsmap & json, T * rval, M msg);
+    template <class M>
+    void log(M msg);
+    // Templates
+    template <class T>                          js::Value encode_to_globals(T * rval);
+    template <class T>                          js::Value encode_to_globals(T & rval);
 
-/*
-    Primitives - Integers
-*/
+    template <class T>                          js::Value encode(jsmap &, T & rval);
+    template <class T>                          js::Value encode(jsmap &, T * rval);
+    template <class T, std::size_t N>           js::Value encode(jsmap &, T (&rval)[N]);
+    template <class T>                          js::Value encode(jsmap &, std::vector<T> & rval);
+    template <class EnumType, class IntType>    js::Value encode(jsmap &, df::enum_field<EnumType,IntType> & rval);
 
-// must be cast tobool, int, boost::int64_t, boost::uint64_t(long long) or double
+    template <class T>                          std::string get_p           (T * o);
+    template <class T>                          std::string global_exists   (jsmap &, T *);
+    template <class T>                          std::string global_add      (jsmap &, T *, js::Object&);
 
-json_spirit::Value encode(bool rval){
-    return json_spirit::Value(rval);
-}
-json_spirit::Value encode(int rval){
-    return json_spirit::Value(rval);
-}
-json_spirit::Value encode(long rval){
-    return json_spirit::Value((long long)rval);
-}
-json_spirit::Value encode(long long rval){
-    return json_spirit::Value(rval);
-}
-json_spirit::Value encode(short rval){
-    return json_spirit::Value((int)rval);
-}
-json_spirit::Value encode(signed char rval){
-    return json_spirit::Value(rval);
-}
-json_spirit::Value encode(unsigned char rval){
-    return json_spirit::Value(rval);
-}
-json_spirit::Value encode(unsigned long rval){
-    return json_spirit::Value((unsigned long long)rval);
-}
-json_spirit::Value encode(unsigned long long rval){
-    return json_spirit::Value(rval);
-}
-json_spirit::Value encode(unsigned short rval){
-    return json_spirit::Value(rval);
-}
+    // Functions
 
-/*
-    Primitives - Arrays
-*/
+    // ints must be cast tobool, int, boost::int64_t, boost::uint64_t(long long) or double
+    js::Value encode(jsmap &, bool & rval);
+    js::Value encode(jsmap &, int rval);
+    js::Value encode(jsmap &, long & rval);
+    js::Value encode(jsmap &, long long & rval);
+    js::Value encode(jsmap &, short & rval);
+    js::Value encode(jsmap &, signed char & rval);
+    js::Value encode(jsmap &, unsigned char & rval);
+    js::Value encode(jsmap &, unsigned int & rval);
+    js::Value encode(jsmap &, unsigned long & rval);
+    js::Value encode(jsmap &, unsigned long long & rval);
+    js::Value encode(jsmap &, unsigned short & rval);
+    js::Value encode(jsmap &, std::string & rval);
+    js::Value encode(jsmap &, void* rval);
 
-template <class T, std::size_t N>
-json_spirit::Value encode(T (&rval)[N]){
-    Array out;
-    for (int i=0; i < N; i++){
-        out.push_back( encode(rval[i]) );
+
+    js::Value encode(jsmap &, std::string & rval);
+    js::Value encode(jsmap &, void* rval);
+
+    // TEMPLATE DEFINITIONS
+    /*
+        Encoding functions
+    */
+
+    /*
+        General Case
+    */
+    
+    template <class T>
+    js::Value encode(jsmap &, T & rval) {
+        // we don't know how to render it so pass back it's type for debugging purposes
+        return js::Value(abi::__cxa_demangle(typeid(T).name(), 0, 0, 0));
     }
-    return json_spirit::Value(out);
-}
 
-/*
-    STD Types
-*/
+    /*
+        Pointers
+    */
+    template <class T>
+    js::Value encode(jsmap & json, T* rval) {
+        log(json, rval);
 
-json_spirit::Value encode(std::string rval) {
-    return json_spirit::Value(rval);
-}
+        // There are serious problems with infinite recursive structures if we encode pointers
+        // There are three solutions
+        // 1. Limit recursion depth by using a global counter (bad) or passing an argument down the chain (better)
+        // 2. Encoding breadth first and detecting if the current object has already been rendered. (may have problems)
+        // 3. If something is a pointer don't render it, just render an artificial pointer/id to where it is (best solution?)
+        // 4. The clojure code could detect fields that are the same class as the one of the ancestors and not ask for them to be rendered
 
-template<class T>
-json_spirit::Value encode(std::vector<T> rval) {
-    Array out;
-    for (int i=0; i < rval.size(); i++){
-        out.push_back( encode(rval[i]) );
-    }
-    return json_spirit::Value(out);
-}
-
-
-/*
-    DF Types
-*/
-template<class EnumType, class IntType>
-json_spirit::Value encode(df::enum_field<EnumType,IntType> rval) {
-    return json_spirit::Value();
-}
-
-/*
-    template<class EnumType, class IntType = int32_t>
-    struct enum_field {
-        IntType value;
-
-        enum_field() {}
-        enum_field(EnumType ev) : value(IntType(ev)) {}
-        template<class T>
-        enum_field(enum_field<EnumType,T> ev) : value(IntType(ev.value)) {}
-
-        operator EnumType () { return EnumType(value); }
-        enum_field<EnumType,IntType> &operator=(EnumType ev) {
-            value = IntType(ev); return *this;
+        // NULL Pointer
+        if (!rval){
+            return js::Value();
         }
-    };
-*/
 
-/*
-template<>
-json_spirit::Value encode(df::history_event* rval){
-    Object val;
-    val.push_back(Pair("year",                                encode(rval->year)));
-    val.push_back(Pair("seconds",                             encode(rval->seconds)));
-    val.push_back(Pair("flags",                               encode(rval->flags)));
-    val.push_back(Pair("id",                                  encode(rval->id)));
-    return json_spirit::Value(val);
+        // deref and encode
+        return encode(json, *rval);
+    }
+
+    /*
+        Primitives - Arrays
+    */
+
+    template <class T, std::size_t N>
+    js::Value encode(jsmap & json, T (&rval)[N]){
+        log(json, rval, N);
+        js::Array out;
+        for (int i=0; i < N; i++){
+            out.push_back( encode(json, rval[i]) );
+        }
+        return js::Value(out);
+    }
+
+    /*
+        STD Types
+    */
+
+    template<class T>
+    js::Value encode(jsmap & json, std::vector<T> &rval) {
+        log(json, rval);
+        js::Array out;
+        for (int i=0; i < rval.size(); i++){
+            out.push_back( encode(json, rval[i]) );
+        }
+        return js::Value(out);
+    }
+
+
+    /*
+        DF Types
+    */
+    template <class EnumType, class IntType>
+    js::Value encode(jsmap & json, df::enum_field<EnumType,IntType> & rval) {
+        log(json, rval);
+        //EnumType e = rval();
+        //IntType v = rval.value;
+        return js::Value(get_key(rval));
+        //return js::Value(ENUM_KEY_STR(e, v));
+    }
+
+    /*
+        Others
+    */
+    template<class T>
+    js::Value encode_to_globals(T & rval) {
+        return encode_to_globals(&rval);
+    }
+    template<class T>
+    js::Value encode_to_globals(T * rval) {
+        
+        jsmap json;
+        
+        // encode has side effects!
+        // it adds globals to json and returns a representation of rval!
+        // NOT AN JS:ARRAY
+        // BROKEN
+        //json["root"] = encode(json, rval);
+        js::Value root = encode(json, rval);
+
+        // Convert our map to a value
+        js::Object obj;
+        obj.push_back(js::Pair( "root", root ) );
+
+        for (jsmap::reverse_iterator iter = json.rbegin(); iter != json.rend(); ++iter) {
+            obj.push_back(js::Pair( iter->first, iter->second ) );
+        }
+        
+        return js::Value(obj);
+    }
+
+    template <class T>
+    std::string get_p(T * o){
+        const void * address = static_cast<const void*>(o);
+        std::stringstream ss;
+        ss << address;  
+        return "p" + ss.str(); 
+    }
+
+    template <class T>
+    std::string global_exists(jsmap & json, T * rval){
+        std::string p = get_p(rval);
+        if (json.find(p) == json.end()) {
+            json[p];
+            return "";
+        } else {
+            return p;
+        }
+    }
+
+    
+    template <class T>
+    std::string global_add(jsmap & json, T * rval, js::Object & val){
+        std::string p = get_p(rval);
+        json[p] = val;
+        return p;
+    }
+
+    template <class T>
+    void log(jsmap & json, T * rval){
+        log(json, rval, 0);
+    }
+
+    template <class T>
+    void log(jsmap & json, T & rval){
+        log(json, &rval, 0);
+    }
+
+    template <class T, class M>
+    void log(jsmap & json, T & rval, M msg){
+        log(json, &rval, msg);
+    }
+
+    template <class T, class M>
+    void log(jsmap & json, T * rval, M msg){
+        ofstream myfile;
+        myfile.open ("encode.log", ios::out | ios::app);
+
+        size_t len;
+        int s;
+        char* p = abi::__cxa_demangle(typeid(T).name(), 0, &len, &s);
+        myfile << typeid(T).name() << ": " << p << std::endl; 
+
+        myfile << "p: " << get_p(rval) << endl;
+        myfile << msg << endl;
+        myfile.close();
+    }
+
+    template <class M>
+    void log(M msg){
+        ofstream myfile;
+        myfile.open ("encode.log", ios::out | ios::app);
+        myfile << msg << endl;
+        myfile.close();
+    }
+
 }
-*/
-
-#endif

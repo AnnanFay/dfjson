@@ -1,59 +1,68 @@
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <string>
+#include "encode.h"
 
-#include <boost/lexical_cast.hpp>
-#include <json_spirit_reader_template.h>
-#include <json_spirit_writer_template.h>
-
-#include <DFHack.h>
-#include <Core.h>
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
-#include <DataDefs.h>
-
-#include <df-headers.h>
-
-#include <encode.h>
-#include <encode-df.h>
-
-using namespace std;
-using namespace json_spirit;
-using namespace boost;
-using namespace DFHack;
+namespace dfjson
+{
 
 
-// Strings
-Value _encode(std::string rval) {
-    return Value(rval);
-}
+    /*
+        Encoding functions
+    */
 
-// Ints of varius types
-Value _encode(int8_t rval) {
-    return Value(rval);
-}
-Value _encode(int16_t rval) {
-    return Value(rval);
-}
-Value _encode(int32_t rval) {
-    return Value(rval);
-}
-Value _encode(uint8_t rval) {
-    return Value(rval);
-}
-Value _encode(uint16_t rval) {
-    return Value(rval);
-}
-Value _encode(uint32_t rval) {
-    return Value((long long)rval);
-}
+    /*
+        Pointers
+    */
 
-Value _encode(float rval) {
-    return Value(rval);
-}
+    // A pointer to an unknown
+    js::Value encode(jsmap & json, void* rval) {
+        return js::Value();
+    }
 
-Value _encode(void* rval) {
-    return Value();
+    /*
+        Primitives - Integers
+    */
+
+    // must be cast tobool, int, boost::int64_t, boost::uint64_t(long long) or double
+
+    js::Value encode(jsmap & json, bool & rval){
+        return js::Value(rval);
+    }
+    js::Value encode(jsmap & json, int rval){
+        return js::Value(rval);
+    }
+    js::Value encode(jsmap & json, long & rval){
+        return js::Value((long long)rval);
+    }
+    js::Value encode(jsmap & json, long long & rval){
+        return js::Value(rval);
+    }
+    js::Value encode(jsmap & json, short & rval){
+        return js::Value((int)rval);
+    }
+    js::Value encode(jsmap & json, signed char & rval){
+        return js::Value(rval);
+    }
+    js::Value encode(jsmap & json, unsigned char & rval){
+        return js::Value(rval);
+    }
+    js::Value encode(jsmap & json, unsigned int & rval){
+        return js::Value((long long)rval);
+    }
+    js::Value encode(jsmap & json, unsigned long & rval){
+        return js::Value((unsigned long long)rval);
+    }
+    js::Value encode(jsmap & json, unsigned long long & rval){
+        return js::Value(rval);
+    }
+    js::Value encode(jsmap & json, unsigned short & rval){
+        return js::Value(rval);
+    }
+
+    /*
+        STD Types
+    */
+
+    js::Value encode(jsmap & json, std::string & rval) {
+        log(json, &rval, rval);
+        return js::Value(rval);
+    }
 }
