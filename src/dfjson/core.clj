@@ -134,7 +134,7 @@
     
     (if (or (= m "static-array") (= m "pointer") (= m "container"))
       (if (empty? (:content znode))
-        "Fubar"
+        type-name
         (get-base-type (z/down zdata)))
       (get-type zdata))))
 
@@ -217,7 +217,7 @@
 ;                                                ">
           (= stype "flag-bit")    (str "encode(json, +rval" gsym "bits." n ")")
           (= stype "stl-vector")  (str "encode(json, rval" gsym n ")")
-          (not-nil? size)         (str "encode(json, rval" gsym n ")")
+          (not-nil? size)         (str "encode_array(json, rval" gsym n ", " size ")")
           :else                   (str "encode(json, rval" gsym n ")"))
         "));" indent "//" (get-type zdata) "\n"))))
 
@@ -282,6 +282,13 @@
                           \tab \tab "if (p != \"\"){ return js::Value(p);}\n"))
 
                   \tab \tab "js::Object val;\n"
+
+                  ; SPECIAL RULES
+                  (if (= full-type "df::language_name")
+                    (str  \tab \tab "val.push_back(Pair(\"translation\", translate(json, rval)));\n"))
+                  (if (= full-type "df::unit")
+                    (str  \tab \tab "val.push_back(Pair(\"race_name\", get_race(json, rval)));\n"))
+
                   ; INHERITANCE
                   (if (not-nil? inherit)
                     (let [inherit-loc (walk-find
@@ -290,8 +297,7 @@
                       (if (not-nil? inherit-loc)
                         (str
                           (cmt " From inheritance (" inherit ")")
-                          (apply str (map #(format-add % "->") (loc-children inherit-loc)))
-                          "\n"))))
+                          (apply str (map #(format-add % "->") (loc-children inherit-loc))) "\n"))))
                   (apply str (map #(format-add % "->") (loc-children zdata)))
           ; GLOBAL
           (if (= tag :ld:global-type)

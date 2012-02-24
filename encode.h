@@ -21,7 +21,8 @@
 using namespace std;
 using namespace json_spirit;
 namespace js = json_spirit;
-//using namespace DFHack;
+
+using df::global::world;
 
 typedef std::map<std::string, js::Object> jsmap;
 
@@ -47,6 +48,9 @@ namespace dfjson
     template <class T>                          js::Value encode(jsmap &, T & rval);
     template <class T>                          js::Value encode(jsmap &, T * rval);
     template <class T, std::size_t N>           js::Value encode(jsmap &, T (&rval)[N]);
+
+    template <class T>                          js::Value encode_array(jsmap &, T *, std::size_t);
+
     template <class T>                          js::Value encode(jsmap &, std::vector<T> & rval);
     template <class EnumType, class IntType>    js::Value encode(jsmap &, df::enum_field<EnumType,IntType> & rval);
 
@@ -74,6 +78,13 @@ namespace dfjson
 
     js::Value encode(jsmap &, std::string & rval);
     js::Value encode(jsmap &, void* rval);
+
+    js::Value translate(jsmap & json, df::language_name * name);
+    js::Value get_race (jsmap & json, df::unit          * unit);
+
+    js::Value encode(jsmap & json, df::creature_raw* rval);
+    js::Value encode(jsmap & json, df::creature_raw& rval);
+
 
     // TEMPLATE DEFINITIONS
     /*
@@ -119,6 +130,19 @@ namespace dfjson
 
     template <class T, std::size_t N>
     js::Value encode(jsmap & json, T (&rval)[N]){
+        log("encoding array");
+        log(json, rval, N);
+        js::Array out;
+        for (int i=0; i < N; i++){
+            out.push_back( encode(json, rval[i]) );
+        }
+        return js::Value(out);
+    }
+
+    // See if this works
+    template <class T>
+    js::Value encode_array(jsmap & json, T * rval, std::size_t N){
+        log("encoding array");
         log(json, rval, N);
         js::Array out;
         for (int i=0; i < N; i++){
@@ -234,10 +258,10 @@ namespace dfjson
         size_t len;
         int s;
         char* p = abi::__cxa_demangle(typeid(T).name(), 0, &len, &s);
-        myfile << typeid(T).name() << ": " << p << std::endl; 
+        myfile << "TYPE: " << p << std::endl; 
 
-        myfile << "p: " << get_p(rval) << endl;
-        myfile << msg << endl;
+        myfile << "    Pointer: " << get_p(rval) << endl;
+        myfile << "    Message: " << msg << endl;
         myfile.close();
     }
 
